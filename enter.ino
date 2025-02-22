@@ -13,7 +13,7 @@ int volatile voices_detected = 0;
 int last_event = 0;
 int did_ended = 0;
 const int H_PIN = 5;
-int feat_exposed = 0;  // can external featurese enter inside
+int feat_exposed = 0;  // can external features enter inside
 int perc = 0;
 int limiter_change = 0;
 int expander_change = 0;
@@ -33,7 +33,8 @@ iarduino_OLED_txt oled(0x3d);
 #define OHM_INPUT A4
 #define VOLUME_INPUT A2
 #define MIC_INPUT A8
-#define LED_MATCH_EXPANDER 51
+#define LED_BLACK_HOLE_FAIL 45
+#define LED_MATCH_EXPANDER 22
 #define LED_MATCH_LIMITER 53
 #define PIN_BUZZER 31
 #define LED_CRYSTALL_GROW 44
@@ -59,6 +60,7 @@ void setup() {
   pinMode(LED_CRYSTALL_GROW, OUTPUT);
   pinMode(7, OUTPUT);
   pinMode(8, OUTPUT);
+  pinMode(LED_BLACK_HOLE_FAIL, OUTPUT);
   pinMode(HIDDEN_FEATURES, OUTPUT);
   pinMode(LED_MATCH_EXPANDER, OUTPUT);
   pinMode(LED_MATCH_LIMITER, OUTPUT);
@@ -73,21 +75,35 @@ void setup() {
   Serial.println("r&q + skynet + met9");
 
   for (int d = 0; d < 10; d++) {
+    digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
+
     digitalWrite(LED_VOICE_DETECTED, HIGH);
-    delay(24 * 2);
+    delay(24);
     digitalWrite(LED_VOICE_DETECTED, LOW);
-    delay(24 * 2);
+    delay(24);
+
+    digitalWrite(LED_MATCH_LIMITER, HIGH);
+    delay(24);
+    digitalWrite(LED_MATCH_LIMITER, LOW);
+    delay(24);
+
+    digitalWrite(LED_MATCH_EXPANDER, HIGH);
+    delay(24);
+    digitalWrite(LED_MATCH_EXPANDER, LOW);
+    delay(24);
 
     digitalWrite(HIDDEN_FEATURES, HIGH);
-    delay(24 * 2);
+    delay(24);
     digitalWrite(HIDDEN_FEATURES, LOW);
-    delay(24 * 2);
+    delay(24);
 
     tone(PIN_BUZZER, 2500);
     digitalWrite(PIN_BUZZER, HIGH);
     delay(20 - d);
     digitalWrite(PIN_BUZZER, LOW);
     noTone(PIN_BUZZER);
+
+    digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
   }
 
   oled.begin(&Wire);
@@ -107,6 +123,8 @@ void setup() {
   tasker.setInterval(timelaps, 1000);
 
   tasker.setInterval(accum_noise, 50);
+
+  tasker.setInterval(timeshift, 100);
 }
 
 void buzz(int time = 100, int mtone = 1000) {
@@ -119,6 +137,16 @@ void buzz(int time = 100, int mtone = 1000) {
   delay(time);
   digitalWrite(PIN_BUZZER, LOW);
   noTone(PIN_BUZZER);
+}
+
+void timeshift() {
+  if (power >= 1) {
+    if (random(3) == random(4)) {
+      digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
+      buzz(4000, 200);
+      digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
+    }
+  }
 }
 
 void accum_noise() {
