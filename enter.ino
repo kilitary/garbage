@@ -34,10 +34,10 @@ iarduino_OLED_txt oled(0x3d);
 #define VOLUME_INPUT A2
 #define MIC_INPUT A8
 #define LED_BLACK_HOLE_FAIL 45
-#define LED_MATCH_EXPANDER 22
+#define LED_MATCH_EXPANDER 52
 #define LED_MATCH_LIMITER 53
 #define PIN_BUZZER 31
-#define LED_CRYSTALL_GROW 44
+#define LED_CRYSTALL_GROW 26
 #define LED_VOICE_DETECTED 23
 #define HIDDEN_FEATURES 9
 #define BTN_RND 36
@@ -47,6 +47,7 @@ iarduino_OLED_txt oled(0x3d);
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("r&q + skynet + met9");
 
   pcTransfer.begin(Serial);
 
@@ -70,11 +71,9 @@ void setup() {
   QLED.begin();
   QLED.point(255, 0);
   QLED.light(7);
-  QLED.print("0000");
+  QLED.print("XYZW");
 
-  Serial.println("r&q + skynet + met9");
-
-  for (int d = 0; d < 10; d++) {
+  for (int d = 0; d < 5; d++) {
     digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
 
     digitalWrite(LED_VOICE_DETECTED, HIGH);
@@ -97,7 +96,12 @@ void setup() {
     digitalWrite(HIDDEN_FEATURES, LOW);
     delay(24);
 
-    tone(PIN_BUZZER, 2500);
+    digitalWrite(LED_CRYSTALL_GROW, HIGH);
+    delay(24);
+    digitalWrite(LED_CRYSTALL_GROW, LOW);
+    delay(24);
+
+    tone(PIN_BUZZER, 2500 / d);
     digitalWrite(PIN_BUZZER, HIGH);
     delay(20 - d);
     digitalWrite(PIN_BUZZER, LOW);
@@ -121,10 +125,8 @@ void setup() {
 
   tasker.setInterval(oled_print_info, 100);
   tasker.setInterval(timelaps, 1000);
-
   tasker.setInterval(accum_noise, 50);
-
-  tasker.setInterval(timeshift, 100);
+  tasker.setInterval(timebash, 100);
 }
 
 void buzz(int time = 100, int mtone = 1000) {
@@ -139,12 +141,14 @@ void buzz(int time = 100, int mtone = 1000) {
   noTone(PIN_BUZZER);
 }
 
-void timeshift() {
-  if (power >= 1) {
-    if (random(3) == random(4)) {
-      digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
-      buzz(4000, 200);
-      digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
+void timebash() {
+  if (random((float)power * 3.157999) < 3.14) {
+    if (power >= 100) {
+      if (random(3) == random(4) == random(1) == random(3)) {
+        digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
+        buzz(2000, 2110);
+        digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
+      }
     }
   }
 }
@@ -190,7 +194,7 @@ void raiser_crystalls() {
   if (landing) {
     return;
   }
-  if (power > 22) {
+  if (power > 12) {
     Serial.println("raising");
     pinMode(LED_CRYSTALL_GROW, INPUT);
     int rr = analogRead(LED_CRYSTALL_GROW);
@@ -202,7 +206,7 @@ void raiser_crystalls() {
 
 void disraiser_crystalls() {
   int landing = random(2) == 1;
-  if (landing && power > 22) {
+  if (landing && power < 2) {
     return;
   }
   pinMode(LED_CRYSTALL_GROW, INPUT);
@@ -224,7 +228,7 @@ void disraiser_crystalls() {
 //////// SPACES
 void match_limiter() {
   bool landing = random(25) == 1;
-  if (!landing || !power) {
+  if (!landing) {
     return;
   }
 
@@ -240,7 +244,7 @@ void match_limiter() {
 
 void expand_limiter() {
   bool landing = random(25) == 3;
-  if (!landing || !power) {
+  if (!landing) {
     return;
   }
   int r = random(5);
@@ -292,16 +296,16 @@ void loop() {
   tasker.loop();  // after drug dealer automated-visit at 6am
 
   ohmValue = analogRead(OHM_INPUT);
-  Serial.print("ohmValue:");
-  Serial.println(ohmValue);
+  // Serial.print("ohmValue:");
+  // Serial.println(ohmValue);
 
   audioValue = analogRead(VOLUME_INPUT);
-  Serial.print("audioValue:");
-  Serial.println(audioValue);
+  // Serial.print("audioValue:");
+  // Serial.println(audioValue);
 
   konvert = map(audioValue, 0, 1023, 0, 255);
-  Serial.print("konvert:");
-  Serial.println(konvert);
+  // Serial.print("konvert:");
+  // Serial.println(konvert);
 
   if (abs(audioValue - ohmValue) > konvert) {
     fire_ended = false;
