@@ -27,6 +27,7 @@ int power = 0;
 int fire_ended = true;
 int padding = false;
 unsigned long mils = 0;
+
 SerialTransfer pcTransfer;
 iarduino_4LED QLED(7, 8);
 Tasker tasker;
@@ -40,15 +41,16 @@ iarduino_OLED_txt oled(0x3c);
 #define MIC_INPUT A14
 #define LED_BLACK_HOLE_FAIL 45
 #define MAX_MIC_INPUT 48
-#define LED_MATCH_EXPANDER 52
+#define LED_MATCH_EXPANDER 34
 #define LED_MATCH_LIMITER 53
 #define PIN_BUZZER 31
-#define LED_CRYSTALL_GROW A0
+#define LED_CRYSTALL_GROW A5
 #define LED_VOICE_DETECTED 23
 #define HIDDEN_FEATURES 9
 #define BTN_SLEEP 36
 
 #define seconds(s) (millis(1000 * s))
+#define sleep(s) (delay(seconds(s)))
 
 
 void setup() {
@@ -82,21 +84,23 @@ void setup() {
   QLED.begin();
   QLED.point(255, 0);
   QLED.light(7);
-  QLED.print("TEST");
+  QLED.print("3914");
 
   oled.begin(&Wire);
   oled.setFont(SmallFontRus);
 
-  do_self_test();
+  self_test();
 
-  perc = random(1250);
+  perc = 1000 + random(1250);
+  Serial.println(perc);
   tasker.setInterval(match_limiter, perc);
-  perc = random(2500);
+  perc = 1000 + random(1500);
+  Serial.println(perc);
   tasker.setInterval(expand_limiter, perc);
 
   crystall_spawn_sec = random(1250);
   tasker.setInterval(raiser_crystalls, crystall_spawn_sec);
-  crystall_spawn_sec = random(2250);
+  crystall_spawn_sec = random(1250);
   tasker.setInterval(disraiser_crystalls, crystall_spawn_sec);
 
   tasker.setInterval(regular, 1000);
@@ -112,7 +116,7 @@ void setup() {
   Serial.println(mils);
 }
 
-void do_self_test() {
+void self_test() {
 
   // if (!digitalPinHasPWM(LED_CRYSTALL_GROW)) {
   //   Serial.print("error pin does not have PWM");
@@ -162,8 +166,9 @@ void wd_setup() {
   Serial.println("watchdog set");
 }
 
-void buzz(int time = 100, int mtone = 1000) {
+void buzz(int time = 0, int mtone = 0) {
   if (!time || !mtone) {
+    noTone(PIN_BUZZER);
     return;
   }
 
@@ -185,9 +190,9 @@ void timebash() {
     if (power >= 70 && expander_change > 100 && limiter_change >= 100) {
       if (random(3) == random(4) == random(1) == random(3)) {
         digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
-        buzz(10, 110);
+        buzz(1011, 5110);
         Serial.println("what the fuck!?!");
-        power -= 20;
+        power -= 5;
         expander_change -= 100;
         digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
       }
@@ -213,28 +218,28 @@ void regular() {
   if (sleepB) {
     Serial.println("sleep requested");
     //set_cp
+    running = false;
+    return;
   }
 
-  expander_change = max(0, expander_change);
-  limiter_change = max(0, limiter_change);
-
-  power = min(limiter_change + power * 4,
-              abs(expander_change - limiter_change));
-
-  //Serial.print("power:");
-  //Serial.println(power)
-
-  feat_exposed = random(43) > 38;
+  feat_exposed = random(43) < 9;
   if (feat_exposed) {
     digitalWrite(HIDDEN_FEATURES, HIGH);
-    if (random(33) <= 3) {
-      power = 0;
-      buzz(5, 200);
-    } else if (random(55) <= 5) {
-      buzz(5, 100);
-      power++;
+    if (random(33) <= 15) {
+      if (power) {
+        power -= min(5, abs(expander_change - limiter_change));
+      }
+      //buzz(5, 200);
+    } else if (random(55) <= 35) {
+      //buzz(1, 1000);
+      power += min(5, abs(expander_change - limiter_change));
+    } else {
+      if (power) {
+        power -= 2;
+      }
     }
     delay(120);
+
     digitalWrite(HIDDEN_FEATURES, LOW);
   }
 
@@ -248,37 +253,43 @@ void regular() {
 ////////////////////  CRYSTALLLS
 void raiser_crystalls() {
   static bool running = false;
-  if (running) {
+  static bool moving_down = false;
+
+  int landing = random(15) > 13;
+  if (running || landing) {
     return;
   }
+
   running = true;
-  int landing = random(5) > 2;
-  if (landing) {
-    return;
-  }
-  if (power > 12) {
-    int f = random(10, 20);
+
+  if (power > 13) {
+    int f = random(3, 10);
     for (int a = 0; a < f; a++) {
+      //buzz(1, 112110);
+      //delay(100);
+      //buzz();
       pinMode(LED_CRYSTALL_GROW, INPUT);
-      delay(2);
-      int rr = analogRead(LED_CRYSTALL_GROW);
-      Serial.print("read ");
-      Serial.println(rr);
-      delay(2);
-      rr = map(rr, 0, 1023, 0, 255);
-      Serial.print("rr2=");
-      Serial.println(rr);
-      int v = 0;
-      if (random(2) == 1) {
-        v = abs(min(rr, rr + random(13)));
-      } else {
-        v = abs(min(rr, rr - random(13)));
-      }
-      Serial.print("raising => ");
-      Serial.println(v);
-      delay(2);
-      pinMode(LED_CRYSTALL_GROW, OUTPUT);
       delay(1);
+      int rr = analogRead(LED_CRYSTALL_GROW);
+      rr = map(rr, 0, 1023, 0, 255);
+      int v = 0;
+
+      if (moving_down) {
+        v = rr - random(2);
+        if (v <= 5) {
+          moving_down = false;
+        }
+      } else {
+        v = rr + random(2);
+        if (v >= 250) {
+          moving_down = true;
+        }
+      }
+      String str = "";
+      sprintf(str.c_str(), "raising => %03d", v);
+      Serial.print(str);
+      pinMode(LED_CRYSTALL_GROW, OUTPUT);
+      delay(10);
       analogWrite(LED_CRYSTALL_GROW, v);
     }
   }
@@ -301,9 +312,10 @@ void disraiser_crystalls() {
   delay(1);
 
   for (int a = rr; a > rr; a--) {
-    delay(3);
+    buzz(100, a * 100);
+    delay(100);
     if (random(3) == 1) {
-      power -= 1;
+      power -= 10;
     }
     pinMode(LED_CRYSTALL_GROW, OUTPUT);
     analogWrite(LED_CRYSTALL_GROW, max(random(10), random(255 / rr)));
@@ -319,18 +331,22 @@ void match_limiter() {
   }
   running = true;
 
-  bool landing = random(25) == 1;
-  if (!landing) {
+  bool landing = random(125) < 15;
+  if (landing) {
+    running = false;
     return;
   }
 
-  int a = 0;
-  int r = random(50);
+  int r = random(141) > 131;
   if (r) {
+    r = 1 + random(3);
     limiter_change += r;
+    Serial.print("expand limit matcher by ");
+    Serial.println(r);
     digitalWrite(LED_MATCH_LIMITER, HIGH);
-    delay(150 + r);
+    delay(50 + r);
     digitalWrite(LED_MATCH_LIMITER, LOW);
+    //buzz(5, 10);
   }
 
   running = false;
@@ -338,23 +354,23 @@ void match_limiter() {
 
 void expand_limiter() {
   static bool running = false;
-  if (running) {
+
+  bool landing = (power < 5)
+                 || random(expander_change % 4) < random(limiter_change % 3);
+  if (running || landing) {
     return;
   }
+
   running = true;
 
-  bool landing = random(25) == 3;
-  if (!landing) {
-    return;
-  }
-  int r = random(5);
+  int r = 1 + random(5);
   expander_change += r;
-  Serial.print("grow limiter by ");
+  Serial.print("expand limiter by ");
   Serial.println(r);
   digitalWrite(LED_MATCH_EXPANDER, HIGH);
-  delay(150 + r);
+  delay(50 + r);
   digitalWrite(LED_MATCH_EXPANDER, LOW);
-
+  //buzz(5, 10);
   running = false;
 }
 
@@ -451,6 +467,20 @@ void cost() {
 
 void loop() {
   epoch++;
+
+  char cmd[100] = { 0x0 };
+  int numByte = 0;
+  while (Serial.available()) {
+    // read the most recent byte (which will be from 0 to 255):
+    byte b = Serial.read();
+    cmd[numByte] = (char)b;
+    numByte++;
+  }
+  if (cmd[0]) {
+    Serial.print("got ");
+    Serial.println(cmd);
+    cmd[0] = 0x0;
+  }
 
   tasker.loop();  // after drug dealer automated-visit at 6am
 }
