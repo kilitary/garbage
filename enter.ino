@@ -16,6 +16,7 @@ int feat_exposed = 0;  // can external features enter inside
 int perc = 0;
 int limiter_change = 0;
 int expander_change = 0;
+unsigned long epoch = 0;
 int noise_around = 0;
 uint32_t i;
 int h, m, s;
@@ -36,7 +37,7 @@ iarduino_OLED_txt oled(0x3d);
 #define LED_MATCH_EXPANDER 52
 #define LED_MATCH_LIMITER 53
 #define PIN_BUZZER 31
-#define LED_CRYSTALL_GROW 3
+#define LED_CRYSTALL_GROW A0
 #define LED_VOICE_DETECTED 23
 #define HIDDEN_FEATURES 9
 #define BTN_RND 36
@@ -63,8 +64,6 @@ void setup() {
   pinMode(HIDDEN_FEATURES, OUTPUT);
   pinMode(LED_MATCH_EXPANDER, OUTPUT);
   pinMode(LED_MATCH_LIMITER, OUTPUT);
-
-
 
   QLED.begin();
   QLED.point(255, 0);
@@ -100,41 +99,43 @@ void setup() {
 
 void do_self_test() {
 
-  if (!digitalPinHasPWM(LED_CRYSTALL_GROW)) {
-    Serial.print("error pin does not have PWM");
-    return;
-  }
+  // if (!digitalPinHasPWM(LED_CRYSTALL_GROW)) {
+  //   Serial.print("error pin does not have PWM");
+  //   return;
+  // }
 
   for (int d = 0; d < 6; d++) {
     digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
-
+    delay(2);
     digitalWrite(LED_VOICE_DETECTED, HIGH);
-    delay(22);
+    delay(2);
     digitalWrite(LED_VOICE_DETECTED, LOW);
-
+    delay(2);
     digitalWrite(LED_MATCH_LIMITER, HIGH);
-    delay(22);
+    delay(2);
     digitalWrite(LED_MATCH_LIMITER, LOW);
-
+    delay(2);
     digitalWrite(LED_MATCH_EXPANDER, HIGH);
-    delay(22);
+    delay(2);
     digitalWrite(LED_MATCH_EXPANDER, LOW);
-
+    delay(2);
     digitalWrite(HIDDEN_FEATURES, HIGH);
-    delay(22);
+    delay(2);
     digitalWrite(HIDDEN_FEATURES, LOW);
-
+    delay(2);
     digitalWrite(LED_CRYSTALL_GROW, HIGH);
-    delay(22);
+    delay(2);
     digitalWrite(LED_CRYSTALL_GROW, LOW);
+    delay(2);
 
-    tone(PIN_BUZZER, 250);
+    tone(PIN_BUZZER, 450);
     digitalWrite(PIN_BUZZER, HIGH);
     delay(5);
     digitalWrite(PIN_BUZZER, LOW);
     noTone(PIN_BUZZER);
 
     digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
+    delay(100);
   }
 }
 
@@ -217,15 +218,14 @@ void raiser_crystalls() {
       Serial.println(rr);
       int v = 0;
       if (random(2) == 1) {
-        v = min(255, rr + random(35));
+        v = abs(min(255, rr + random(35)));
       } else {
-        v = min(30, rr - random(35));
+        v = abs(min(30, rr - random(35)));
       }
       Serial.print("raising => ");
       Serial.println(v);
       pinMode(LED_CRYSTALL_GROW, OUTPUT);
       delay(1);
-      digitalWrite(LED_CRYSTALL_GROW, HIGH);
       analogWrite(LED_CRYSTALL_GROW, v);
       delay(8);
     }
@@ -234,7 +234,7 @@ void raiser_crystalls() {
 
 void disraiser_crystalls() {
   int landing = random(2) == 1;
-  if (landing && power < 2) {
+  if (landing && power > 2) {
     return;
   }
   pinMode(LED_CRYSTALL_GROW, INPUT);
@@ -315,10 +315,16 @@ void oled_print_info() {
   oled.print("snd ");
   oled.print(audioValue);
 
+  oled.setCursor(0, 6);
+  oled.print("epoch ");
+  oled.print(epoch);
+
   QLED.print(voices_detected, 0);
 }
 
 void loop() {
+  epoch++;
+
   tasker.loop();  // after drug dealer automated-visit at 6am
 
   ohmValue = analogRead(OHM_INPUT);
