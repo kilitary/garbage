@@ -1,29 +1,36 @@
 #include <Arduino_BuiltIn.h>
+#define TASKER_MAX_TASKS 40
 #include "Tasker.h"
 #include <Wire.h>
 #include <iarduino_OLED_txt.h>
 #include "iarduino_4LED.h"
 #include "SerialTransfer.h"
+#include <avr/sleep.h>
 #include <avr/wdt.h>
+#include <avr/power.h>
+#include "power.h"
+#include "watchdog.h"
+#include <Bonezegei_Printf.h>
 
-int ohmValue = 0;
+volatile int ohmValue = 0;
+volatile unsigned long tasks_done = 0;
 int last_secs = 0, audioValue = 0;
 long prev_seconds = 999999, konvert = 0;
-int hall_sensor = 0, hall_sensor2 = 0;
 int volatile voices_detected = 0;
 int last_event = 0;
 int did_ended = 0;
 int feat_exposed = 0;  // can external features enter inside
 int perc = 0;
-int limiter_change = 0;
-int maxmic = 0;
-int expander_change = 0;
+volatile int limiter_change = 0;
+volatile int maxmic = 0;
+volatile int expander_change = 0;
 unsigned long epoch = 0;
-int noise_around = 0;
+volatile int noise_around = 0;
 uint32_t i;
 int h, m, s;
 int crystall_spawn_sec = 0;
-int power = 0;
+volatile int crystalls = 0;
+volatile int power = 0;
 int fire_ended = true;
 int padding = false;
 unsigned long mils = 0;
@@ -31,40 +38,43 @@ unsigned long mils = 0;
 SerialTransfer pcTransfer;
 iarduino_4LED QLED(7, 8);
 Tasker tasker;
+Bonezegei_Printf debug(&Serial);
 iarduino_OLED_txt oled(0x3c);
 
-#define RGB_R 1
-#define RGB_G 2
+#define RGB_R 5
+#define RGB_G 4
 #define RGB_B 3
 #define OHM_INPUT A4
 #define VOLUME_INPUT A2
-#define MIC_INPUT A14
+#define MIC_INPUT A0
 #define LED_BLACK_HOLE_FAIL 45
 #define MAX_MIC_INPUT 48
-#define LED_MATCH_EXPANDER 34
+#define LED_MATCH_EXPANDER 23
 #define LED_MATCH_LIMITER 53
+#define WAKE_UP_PIN 2
+#define OUTPUT_RGB_LED 13
 #define PIN_BUZZER 31
-#define LED_CRYSTALL_GROW A5
-#define LED_VOICE_DETECTED 23
+#define LED_CRYSTALL_GROW 11
+#define LED_VOICE_DETECTED A14
 #define HIDDEN_FEATURES 9
 #define BTN_SLEEP 36
 
 #define seconds(s) (millis(1000 * s))
-#define sleep(s) (delay(seconds(s)))
-
 
 void setup() {
-  Serial.begin(115200);
 
-  delay(10);
+  analogReference(INTERNAL2V56);
+
+  Serial.begin(115200);
+  while (!Serial) {}
 
   pcTransfer.begin(Serial);
 
   //wd_setup();
 
-  pinMode(BTN_SLEEP, INPUT);
+  pinMode(BTN_SLEEP, INPUT_PULLUP);
   pinMode(MIC_INPUT, INPUT);
-  pinMode(13, INPUT);
+  pinMode(OUTPUT_RGB_LED, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
   pinMode(VOLUME_INPUT, INPUT);
   pinMode(OHM_INPUT, INPUT);
@@ -72,6 +82,7 @@ void setup() {
   pinMode(LED_CRYSTALL_GROW, OUTPUT);
   pinMode(7, OUTPUT);
   pinMode(8, OUTPUT);
+  pinMode(WAKE_UP_PIN, INPUT);
   pinMode(LED_BLACK_HOLE_FAIL, OUTPUT);
   pinMode(HIDDEN_FEATURES, OUTPUT);
   pinMode(MAX_MIC_INPUT, INPUT);
@@ -89,41 +100,48 @@ void setup() {
   oled.begin(&Wire);
   oled.setFont(SmallFontRus);
 
-  self_test();
+  self_test(); // SetUnhandledExceptionFilter()
+  
+  // dont disturb user, let him relax, have good night and positive morning with wifee then go to office and make what has america have now ~60% (TRYMP EYES ONLY. DO NOT DUPLICATE OR MAP. DO NOT REMEMBER AND, FINALLY DO CONSTRAIN)
 
-  perc = 1000 + random(1250);
-  Serial.println(perc);
-  tasker.setInterval(match_limiter, perc);
-  perc = 1000 + random(1500);
-  Serial.println(perc);
-  tasker.setInterval(expand_limiter, perc);
+  tasker.setInterval(match_limiter, 1660);
+  tasker.setInterval(expand_limiter, 1600);
 
-  crystall_spawn_sec = random(1250);
-  tasker.setInterval(raiser_crystalls, crystall_spawn_sec);
-  crystall_spawn_sec = random(1250);
-  tasker.setInterval(disraiser_crystalls, crystall_spawn_sec);
+  tasker.setInterval(raiser_crystalls, 1844);
+  tasker.setInterval(disraiser_crystalls, 4250);
 
-  tasker.setInterval(regular, 1000);
+  tasker.setInterval(bh_fail_check, 888);
   tasker.setInterval(timebash, 1000);
-  tasker.setInterval(oled_dump, 55);
-  tasker.setInterval(cost, 100);
-  tasker.setInterval(accum_noise, 50);
+  tasker.setInterval(oled_dump, 100);
+  tasker.setInterval(cost, 1000);
+  tasker.setInterval(accum_noise, 1350);
 
   mils = millis();
   srand(mils);
 
-  Serial.print("[r&q + skynet + met9] srand=");
-  Serial.println(mils);
+  debug.printf("\n[r&q + skynet + met9]\n");
 }
 
+void buzz(int time = 0, int mtone = 0) {
+  if (!time || !mtone) {
+    noTone(PIN_BUZZER);
+    return;
+  }
+
+  tone(PIN_BUZZER, mtone);
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(time);
+  digitalWrite(PIN_BUZZER, LOW);
+  noTone(PIN_BUZZER);
+}
 void self_test() {
 
-  // if (!digitalPinHasPWM(LED_CRYSTALL_GROW)) {
-  //   Serial.print("error pin does not have PWM");
-  //   return;
-  // }
+  if (!digitalPinHasPWM(LED_CRYSTALL_GROW)) {
+    Serial.print("error pin does not have PWM");
+    return;
+  }
 
-  for (int d = 0; d < 6; d++) {
+  for (int d = 0; d < 9; d++) {
     digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
     delay(2);
     digitalWrite(LED_VOICE_DETECTED, HIGH);
@@ -147,44 +165,20 @@ void self_test() {
     digitalWrite(LED_CRYSTALL_GROW, LOW);
     delay(2);
 
-    tone(PIN_BUZZER, 450);
+    buzz(5, 3);
     digitalWrite(PIN_BUZZER, HIGH);
     delay(5);
     digitalWrite(PIN_BUZZER, LOW);
-    noTone(PIN_BUZZER);
+    buzz();
 
     digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
-    delay(100);
+    delay(10);
   }
 }
 
-void wd_setup() {
-  cli();
-  wdt_reset();
-  wdt_enable(WDTO_2S);
-  sei();
-  Serial.println("watchdog set");
-}
-
-void buzz(int time = 0, int mtone = 0) {
-  if (!time || !mtone) {
-    noTone(PIN_BUZZER);
-    return;
-  }
-
-  tone(PIN_BUZZER, mtone);
-  digitalWrite(PIN_BUZZER, HIGH);
-  delay(time);
-  digitalWrite(PIN_BUZZER, LOW);
-  noTone(PIN_BUZZER);
-}
 
 void timebash() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+  tasks_done++;
 
   if (random(13) < 3) {
     if (power >= 70 && expander_change > 100 && limiter_change >= 100) {
@@ -192,148 +186,114 @@ void timebash() {
         digitalWrite(LED_BLACK_HOLE_FAIL, HIGH);
         buzz(1011, 5110);
         Serial.println("what the fuck!?!");
-        power -= 5;
+        if (power) {
+          power -= min(power - 10, 100);
+        }
         expander_change -= 100;
+        limiter_change -= 100;
         digitalWrite(LED_BLACK_HOLE_FAIL, LOW);
       }
     }
   }
-  running = false;
 }
 
 void accum_noise() {
+  tasks_done++;
   noise_around = analogRead(MIC_INPUT);
 }
 
-void regular() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+void bh_fail_check() {
+  tasks_done++;
 
   // hidden connect of constructors
-
-  bool sleepB = digitalRead(BTN_SLEEP);
-  if (sleepB) {
-    Serial.println("sleep requested");
-    //set_cp
-    running = false;
-    return;
-  }
-
   feat_exposed = random(43) < 9;
   if (feat_exposed) {
     digitalWrite(HIDDEN_FEATURES, HIGH);
     if (random(33) <= 15) {
-      if (power) {
-        power -= min(5, abs(expander_change - limiter_change));
-      }
-      //buzz(5, 200);
+      power += min(5, random(expander_change + limiter_change));
+      buzz(5, 610);
     } else if (random(55) <= 35) {
-      //buzz(1, 1000);
-      power += min(5, abs(expander_change - limiter_change));
-    } else {
       if (power) {
-        power -= 2;
+        buzz(5, 600);
+        int aa = min(5, random(limiter_change));
+        if (power >= aa) {
+          power -= aa;
+        }
       }
     }
-    delay(120);
-
     digitalWrite(HIDDEN_FEATURES, LOW);
   }
-
-  digitalWrite(RGB_R, noise_around);
-  digitalWrite(RGB_G, maxmic);
-  digitalWrite(RGB_B, audioValue);
-
-  running = false;
 }
 
 ////////////////////  CRYSTALLLS
 void raiser_crystalls() {
-  static bool running = false;
+  tasks_done++;
+
   static bool moving_down = false;
 
-  int landing = random(15) > 13;
-  if (running || landing) {
+  int landing = random(15) > 11;
+  if (landing) {
     return;
   }
 
-  running = true;
+  int rr = 0, v = 0, prev = 0;
 
-  if (power > 13) {
-    int f = random(3, 10);
-    for (int a = 0; a < f; a++) {
-      //buzz(1, 112110);
-      //delay(100);
-      //buzz();
-      pinMode(LED_CRYSTALL_GROW, INPUT);
-      delay(1);
-      int rr = analogRead(LED_CRYSTALL_GROW);
-      rr = map(rr, 0, 1023, 0, 255);
-      int v = 0;
+  if (power > 23) {
+    int fraise = random(1, random(10));
 
-      if (moving_down) {
-        v = rr - random(2);
-        if (v <= 5) {
-          moving_down = false;
-        }
-      } else {
-        v = rr + random(2);
-        if (v >= 250) {
-          moving_down = true;
+    pinMode(LED_CRYSTALL_GROW, INPUT);
+    rr = analogRead(LED_CRYSTALL_GROW);
+    prev = abs(map(rr, 0, 1023, 0, 255));
+
+    for (int a = 0; a < fraise; a++) {
+      if (prev <= 3 || prev >= 255) {
+        moving_down = !moving_down;
+        if (!moving_down && random(100) > 70) {
+          crystalls += 1;
         }
       }
-      String str = "";
-      sprintf(str.c_str(), "raising => %03d", v);
-      Serial.print(str);
+      if (moving_down) {
+        v = prev - random(80);
+      } else {
+        v = prev + random(80);
+      }
+      debug.printf("prev=%d v=%d moving=%d a=%d\n", prev, v, moving_down, a);
       pinMode(LED_CRYSTALL_GROW, OUTPUT);
-      delay(10);
+      delay(1);
       analogWrite(LED_CRYSTALL_GROW, v);
+      prev = v;
     }
   }
-  running = false;
 }
 
 void disraiser_crystalls() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+  tasks_done++;
 
   int landing = random(2) == 1;
-  if (landing && power > 2) {
+  if (landing && power < 50) {
     return;
   }
   pinMode(LED_CRYSTALL_GROW, INPUT);
-  int rr = analogRead(LED_CRYSTALL_GROW);
   delay(1);
+  int rr = analogRead(LED_CRYSTALL_GROW);
 
   for (int a = rr; a > rr; a--) {
     buzz(100, a * 100);
-    delay(100);
     if (random(3) == 1) {
-      power -= 10;
+      power -= 2;
     }
     pinMode(LED_CRYSTALL_GROW, OUTPUT);
+    delay(1);
     analogWrite(LED_CRYSTALL_GROW, max(random(10), random(255 / rr)));
   }
-  running = false;
 }
 
 //////// SPACES
 void match_limiter() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+  tasks_done++;
 
   bool landing = random(125) < 15;
   if (landing) {
-    running = false;
     return;
   }
 
@@ -344,103 +304,100 @@ void match_limiter() {
     Serial.print("expand limit matcher by ");
     Serial.println(r);
     digitalWrite(LED_MATCH_LIMITER, HIGH);
-    delay(50 + r);
+    delay(1);
     digitalWrite(LED_MATCH_LIMITER, LOW);
     //buzz(5, 10);
   }
-
-  running = false;
 }
 
 void expand_limiter() {
-  static bool running = false;
-
+  tasks_done++;
   bool landing = (power < 5)
                  || random(expander_change % 4) < random(limiter_change % 3);
-  if (running || landing) {
+  if (landing) {
     return;
   }
-
-  running = true;
 
   int r = 1 + random(5);
   expander_change += r;
   Serial.print("expand limiter by ");
   Serial.println(r);
   digitalWrite(LED_MATCH_EXPANDER, HIGH);
-  delay(50 + r);
+  delay(1);
   digitalWrite(LED_MATCH_EXPANDER, LOW);
   //buzz(5, 10);
-  running = false;
 }
 
 ///////// OTHER
 void oled_dump() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+  tasks_done++;
 
   oled.setCursor(0, 0);
-  oled.print("pwr: ");
+  oled.print("pwr ");
   oled.print(power);
 
   oled.setCursor(0, 1);
-  oled.print("lim: ");
+  oled.print("lim ");
   oled.print(limiter_change);
 
   oled.setCursor(0, 2);
-  oled.print("exp: ");
+  oled.print("exp ");
   oled.print(expander_change);
 
   oled.setCursor(0, 3);
-  oled.print("nse: ");
+  oled.print("nse ");
   oled.print(noise_around);
 
-  // Serial.print("noise:");
+  // Serial.print("noise");
   // Serial.println(noise_around);
 
   oled.setCursor(0, 4);
-  oled.print("ohm: ");
+  oled.print("ohm ");
   oled.print(ohmValue);
 
-  // Serial.print("vol:");
+  // Serial.print("vol");s
   // Serial.println(audioValue);
 
   oled.setCursor(0, 5);
-  oled.print("snd: ");
+  oled.print("vol ");
   oled.print(audioValue);
 
   oled.setCursor(0, 6);
-  oled.print("epoch: ");
+  oled.print("epoch ");
   oled.print(epoch);
 
   oled.setCursor(0, 7);
-  oled.print("maxmic: ");
+  oled.print("maxmic ");
   oled.print(maxmic);
 
-  QLED.print(voices_detected, 0);
+  oled.setCursor(63, 0);
+  oled.print("tsks ");
+  oled.print(tasks_done);
 
-  running = false;
+  oled.setCursor(63, 1);
+  oled.print("crstls ");
+  oled.print(crystalls);
+
+  QLED.print(voices_detected, 0);
 }
 
 void cost() {
-  static bool running = false;
-  if (running) {
-    return;
-  }
-  running = true;
+  static int prev_dist = 0;
+
+  tasks_done++;
 
   maxmic = analogRead(MAX_MIC_INPUT);
+  maxmic = map(maxmic, 0, 1023, 0, 255);
   // Serial.print("maxmic:");
   // Serial.println(maxmic);
 
   ohmValue = analogRead(OHM_INPUT);
+  ohmValue = map(ohmValue, 0, 1023, 0, 255);
   // Serial.print("ohmValue:");
   // Serial.println(ohmValue);
 
   audioValue = analogRead(VOLUME_INPUT);
+  audioValue = map(audioValue, 0, 1023, 0, 255);
   // Serial.print("audioValue:");
   // Serial.println(audioValue);
 
@@ -448,39 +405,47 @@ void cost() {
   // Serial.print("konvert:");
   // Serial.println(konvert);
 
-  if (abs(audioValue - ohmValue) > konvert) {
-    fire_ended = false;
-    last_event = millis();
+  audioValue = analogRead(VOLUME_INPUT);
+  int prev_audioValue = audioValue;
+  if (abs(maxmic - audioValue) >= ohmValue) {
     digitalWrite(LED_VOICE_DETECTED, HIGH);
-  } else {
-    if (millis() - last_event >= 1) {
-      digitalWrite(LED_VOICE_DETECTED, LOW);
-      if (!fire_ended) {
-        voices_detected += 1;
-      }
-      fire_ended = true;
+    last_event = millis();
+    while (abs(prev_audioValue - audioValue) >= ohmValue) {
+      prev_audioValue = audioValue;
+      audioValue = analogRead(VOLUME_INPUT);
+      audioValue = map(audioValue, 0, 1023, 0, 255);
+      ohmValue = analogRead(OHM_INPUT);
+      ohmValue = map(ohmValue, 0, 1023, 0, 255);
     }
+    digitalWrite(LED_VOICE_DETECTED, LOW);
+    voices_detected += 1;
+  }
+}
+void read_user_commands() {
+  String cmd = "";
+  while (Serial.available()) {
+    byte b = Serial.read();
+    cmd += (char)b;
   }
 
-  running = false;
+  if (cmd == "down") {
+    sleepNow();
+  }
 }
 
 void loop() {
-  epoch++;
-
-  char cmd[100] = { 0x0 };
-  int numByte = 0;
-  while (Serial.available()) {
-    // read the most recent byte (which will be from 0 to 255):
-    byte b = Serial.read();
-    cmd[numByte] = (char)b;
-    numByte++;
-  }
-  if (cmd[0]) {
-    Serial.print("got ");
-    Serial.println(cmd);
-    cmd[0] = 0x0;
-  }
-
   tasker.loop();  // after drug dealer automated-visit at 6am
+
+  int sensorValue = analogRead(A0);
+  float voltage = sensorValue * (5 / 1023.0);
+
+  Serial.print("voltage:");
+  Serial.println(voltage);
+
+  analogWrite(RGB_R, maxmic);
+  analogWrite(RGB_G, noise_around);
+  analogWrite(RGB_B, audioValue);
+
+  read_user_commands();
+  epoch++;
 }
